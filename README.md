@@ -91,6 +91,17 @@ export EMOTIV_SSL_VERIFY="0"
 python -m neuro_log.app
 ```
 
+## Quick Start (Avoid the "Not Ready" popup)
+
+1. Launch app: `python -m neuro_log.app`
+2. Click **Connect** and wait until status shows connected/subscribed.
+3. Confirm sampling rate is populated.
+4. Click **Start Recording**.
+
+`Start Recording` is intentionally disabled until EEG subscription is ready.
+
+---
+
 GUI features:
 - **Live plot** of recent EEG activity
 - **Start Recording** / **Stop Recording** buttons

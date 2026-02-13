@@ -43,6 +43,7 @@ class NeuroLogMainWindow(QMainWindow):
         self.plot_window_s = 8
         self.plot_buffers: dict[str, deque[float]] = {}
         self.plot_time: deque[float] = deque(maxlen=1024)
+        self.connected_and_subscribed = False
 
         self._build_ui()
         self._configure_callbacks()
@@ -60,18 +61,21 @@ class NeuroLogMainWindow(QMainWindow):
         self.connection_status = QLabel("Disconnected")
         self.sampling_rate_label = QLabel("-")
         self.battery_label = QLabel("-")
+        self.hint_label = QLabel("Click Connect first, then Start Recording.")
         status_layout.addWidget(QLabel("Connection:"), 0, 0)
         status_layout.addWidget(self.connection_status, 0, 1)
         status_layout.addWidget(QLabel("Sampling rate:"), 0, 2)
         status_layout.addWidget(self.sampling_rate_label, 0, 3)
         status_layout.addWidget(QLabel("Battery:"), 0, 4)
         status_layout.addWidget(self.battery_label, 0, 5)
+        status_layout.addWidget(self.hint_label, 1, 0, 1, 6)
 
         control_group = QGroupBox("Recording Controls")
         control_layout = QHBoxLayout(control_group)
         self.connect_button = QPushButton("Connect")
         self.start_button = QPushButton("Start Recording")
         self.stop_button = QPushButton("Stop Recording")
+        self.start_button.setEnabled(False)
         self.stop_button.setEnabled(False)
 
         self.marker_label_input = QLineEdit()
@@ -79,6 +83,7 @@ class NeuroLogMainWindow(QMainWindow):
         self.marker_value_input = QLineEdit()
         self.marker_value_input.setPlaceholderText("optional value")
         self.add_marker_button = QPushButton("Add Marker")
+        self.add_marker_button.setEnabled(False)
 
         control_layout.addWidget(self.connect_button)
         control_layout.addWidget(self.start_button)
@@ -123,21 +128,51 @@ class NeuroLogMainWindow(QMainWindow):
         self.add_marker_button.clicked.connect(self._add_marker)
 
     def _connect_client(self) -> None:
+        self.connect_button.setEnabled(False)
+        self.connection_status.setText("Connecting...")
+
         try:
             self.api_client.connect()
             self.api_client.subscribe_eeg()
         except Exception as exc:
+            self.connect_button.setEnabled(True)
+            self.connected_and_subscribed = False
+            self.start_button.setEnabled(False)
+            self.add_marker_button.setEnabled(False)
             QMessageBox.critical(self, "Connection Error", str(exc))
             return
 
         self.channel_labels = self.api_client.channel_labels
+        if not self.channel_labels:
+            self.connect_button.setEnabled(True)
+            self.connected_and_subscribed = False
+            self.start_button.setEnabled(False)
+            self.add_marker_button.setEnabled(False)
+            QMessageBox.critical(
+                self,
+                "Subscription Error",
+                "Connected to Cortex but no EEG channels were returned. "
+                "Check that the headset is connected and streaming EEG.",
+            )
+            return
+
         sample_rate = self.api_client.sampling_rate_hz or 128.0
         self.sampling_rate_label.setText(f"{sample_rate} Hz")
         self._init_plot_buffers(self.channel_labels)
 
+        self.connected_and_subscribed = True
+        self.start_button.setEnabled(True)
+        self.add_marker_button.setEnabled(True)
+        self.connect_button.setText("Connected")
+        self.hint_label.setText("Connected. You can now start recording.")
+
     def _start_recording(self) -> None:
-        if not self.channel_labels:
-            QMessageBox.warning(self, "Not Ready", "Connect and subscribe before recording.")
+        if not self.connected_and_subscribed:
+            QMessageBox.warning(
+                self,
+                "Not Ready",
+                "You must connect first. Click Connect and wait for EEG subscription to complete.",
+            )
             return
 
         metadata = SessionMetadata(
@@ -154,6 +189,7 @@ class NeuroLogMainWindow(QMainWindow):
 
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.hint_label.setText("Recording in progress...")
 
     def _stop_recording(self) -> None:
         try:
@@ -162,10 +198,12 @@ class NeuroLogMainWindow(QMainWindow):
             QMessageBox.warning(self, "Recording", str(exc))
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
+            self.hint_label.setText("Connected. You can start recording when ready.")
             return
 
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.hint_label.setText("Recording stopped and exported.")
 
         file_lines = "\n".join(f"{fmt.upper()}: {path}" for fmt, path in saved_paths.items())
         QMessageBox.information(self, "Saved", f"Recording exported:\n{file_lines}")
