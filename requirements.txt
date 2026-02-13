@@ -1,0 +1,5 @@
+PyQt6>=6.7
+websocket-client>=1.8
+numpy>=1.26
+mne>=1.7
+matplotlib>=3.8
